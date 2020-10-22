@@ -3,7 +3,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.layers as tcl
 
-class complexCurveNet():
+class fourier_filters():
+    """Fourier domain var theta filters"""
     def __init__(self,  tile_npy, trainable=True):
         _, ch, img_size, _ = tile_npy.shape
         with tf.variable_scope('curvenet', reuse=tf.AUTO_REUSE):
@@ -32,13 +33,15 @@ class complexCurveNet():
 
         return x_fft, x
 
-class complexCurveNetOS():
+class fourier_filtersOS():
+    """Fourier domain var theta filters (oversampled @ 2x)"""
     def __init__(self,  tile_npy, name='', trainable=True):
         self.name = name
         with tf.variable_scope(self.name + '_curvenet' , reuse=tf.AUTO_REUSE):
             self.mask = tf.convert_to_tensor(tile_npy, 
                 dtype=tf.float32, name='mask')
 
+            # 50 is the number of boxes
             self.conv_weights = tf.Variable(
                 tf.random.normal(shape=(1,50,256,256))*self.mask,
                 trainable=trainable,

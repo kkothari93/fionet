@@ -3,6 +3,35 @@ import argparse
 import numpy as np
 import tensorflow as tf
 
+def save_params():
+    with open(os.path.join(LOG_DIR,'params.txt'), 'w+') as f:
+        f.write(str(FLAGS))
+
+def save_weights(ckpt, name='wts.npy'):
+    """
+    saves weight matrices, avoids optimizer weights
+    """
+    ckpt_vars = tf.train.list_variables(ckpt)
+    ckpt_vars = [v for v in ckpt_vars if 'Adam' not in v[0]
+                 and 'beta' not in v[0]]
+    print(ckpt_vars)
+
+    tvars = []
+    for v, s in ckpt_vars:
+        t = v.split('/')
+        scope = '/'.join(t[:-1])
+        with tf.variable_scope(scope, reuse=True):
+            tvars.append(sess.run(tf.get_variable(t[-1])))
+
+    dct = {}
+    for k, (name, shape) in enumerate(ckpt_vars):
+
+        nm_str = name.replace('/', '_')
+        print(nm_str)
+        dct[nm_str] = tvars[k]
+
+    np.save(logdir + name, dct)
+
 
 def get_pixel_value(img, x, y):
     """

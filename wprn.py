@@ -1,13 +1,16 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.layers import fully_connected, conv2d
 from time import time
 from utils import *
+from tensorflow.contrib.layers import fully_connected, conv2d
 
-class SingleBigDiffeo():
-    """ This network takes in x,y and box center to spit out
-    the coordinates of the deformed network, and also which box of the input
-    should the diffeo be calculated from
+class WPRN():
+    """ 
+    This network takes in the position and orientation of the 
+    wave packet and spits out its position and orientation after 
+    propagation over a given background. This is NOT used in the 
+    FIONet. It is just used to generate training data for the actual
+    routing network, ConvDiffeo which works on grids.
     """
 
     def __init__(self, size, box_center_npy, nhidden=128, nlayers=2):
@@ -186,15 +189,15 @@ class SingleBigDiffeo():
 
         return warp
 
-class convSingleBigDiffeo(SingleBigDiffeo):
-    def __init__(self, size, box_center_npy, nhidden=128, nlayers=2):
+class convWPRN(WPRN):
+    def __init__(self):
         super().__init__(size, box_center_npy, nhidden, nlayers)
 
-    def net(self, bv):
+    def net(self, x):
         ## random encoding to play well with the saver
         with tf.variable_scope('flow_field', reuse=tf.AUTO_REUSE):
             upsampler = tf.keras.layers.UpSampling2D(size=(2,2), interpolation='bilinear')
-            c = fully_connected(bv, 16, activation_fn = tf.nn.leaky_relu)
+            c = fully_connected(x, 16, activation_fn = tf.nn.leaky_relu)
             c = fully_connected(c, 16*64, activation_fn = tf.nn.leaky_relu)
 
             c = tf.reshape(c, (-1, 4, 4, 64))
@@ -221,71 +224,7 @@ class convSingleBigDiffeo(SingleBigDiffeo):
 
         return flows
 
-
-
-    def test(self):
-        tf.reset_default_graph()
-        tf.random.set_random_seed(1)
-        np.random.seed(0)
-
-        flow_fields = tf.placeholder(tf.float32, [None, 32, 32,8])
-        directions = tf.placeholder(tf.float32, [None, 7])
-
-        flows = tf.data.Dataset.from_tensor_slices(flow_fields)
-        dirs = tf.data.Dataset.from_tensor_slices(directions)
-
-        upsampler = tf.keras.layers.UpSampling2D(size=(4,4), interpolation='bilinear')
-
-        zip_data = tf.data.Dataset.zip((flows, dirs))
-        zip_data = zip_data.prefetch(100)
-        zip_data = zip_data.repeat()
-        zip_data = zip_data.shuffle(64*5)
-        zip_data = zip_data.batch(64)
-
-        iterator = zip_data.make_initializable_iterator()
-        ff, xi = iterator.get_next()
-
-        yhat = self.net(xi)
-        yhat = yhat[:,64:192,64:192,:]
-        loss = tf.reduce_sum(tf.square(yhat - upsampler(ff)))/64.0
-
-        train_step = tf.train.AdamOptimizer(learning_rate=1e-3).minimize(loss)
-
-        logdir = 'conv_diff_fixed_bounds_varying_0p2/'
-        try:
-            os.mkdir(logdir)
-        except:
-            pass
-
-        saver = tf.train.Saver()
-
-        with tf.Session() as sess:
-            sess.run(tf.global_variables_initializer())
-
-            path = '../HJ_flow/gen_bg_flows/'
-
-            sess.run(iterator.initializer, 
-                feed_dict={
-                directions: np.load(path+'/params_15_40_0p2.npy').astype(np.float32),
-                flow_fields: np.load(path+'/flow_fields_15_40_0p2.npy').astype(np.float32),
-                })
-            for i in range(60000):
-                _, l = sess.run([train_step, loss])
-
-                if i%100 == 0:
-                    print('[%d] Loss is : %f'%(i, l))
-
-                if i%1000 == 0:
-                    grids, req, theta = sess.run([yhat, ff, xi])
-                    np.save('yhat_d1.npy', grids[:,:,:,:4])
-                    np.save('req_d1.npy', req[:,:,:,:4])
-                    np.save('yhat_d2.npy', grids[:,:,:,4:])
-                    np.save('req_d2.npy', req[:,:,:,4:])
-                    np.save('theta.npy', theta)
-
-                if (i+1)%1000 == 0:
-                    saver.save(sess, logdir + 'convdiff', global_step=i)
-        
+ 
         return 
 
 
@@ -326,7 +265,7 @@ def make_plot(inputs, out1, out2):
 def train_yxi2xeta():
 
     box_npy = np.load('box_vecs_unit.npy')
-    diffnet = SingleBigDiffeo((128, 128), box_npy, nhidden=32, nlayers=3)
+    diffnet = WPRN((128, 128), box_npy, nhidden=32, nlayers=3)
 
     data_d1 = transform(np.load(
         '../HJ_flow/d1_cons_yxi2xeta.npy').astype(np.float32))
@@ -494,7 +433,7 @@ def train_rtm():
     # theta = np.linspace(0,np.pi,50)
     # box_npy = np.stack((np.cos(theta), np.sin(theta)), axis=-1)
     
-    diffnet = SingleBigDiffeo((128, 128), box_npy, nhidden=32, nlayers=3)
+    diffnet = WPRN((128, 128), box_npy, nhidden=32, nlayers=3)
     data_d1 = np.load('../HJ_flow/d1_full_rtm_ext_gradient_2.npy').astype(np.float32)
     data_d1_t = tf.convert_to_tensor(data_d1, dtype=tf.float32)
     
@@ -534,7 +473,7 @@ def train_rtm():
     params = tf.concat(
         (tf.tile(bg_vec_sig, [N-2, 1]), diffnet.bc[1:-1]), axis=-1)
 
-    convdiff = convSingleBigDiffeo((128,128), box_npy, nhidden=32, nlayers=3)
+    convdiff = convWPRN((128,128), box_npy, nhidden=32, nlayers=3)
     conv_grids = convdiff.net(params)
 
     conv_grids_x = conv_grids[:,64-1:192+1,64-1:192+1,0]
@@ -615,7 +554,7 @@ def train_rtm():
 def train_xt2xy():
 
     box_npy = np.load('box_vecs_unit.npy')
-    diffnet = SingleBigDiffeo((128, 128), box_npy, nhidden=32, nlayers=3)
+    diffnet = WPRN((128, 128), box_npy, nhidden=32, nlayers=3)
 
     data_d1 = np.load(
         '../HJ_flow/inp_seis_0p4.npy').astype(np.float32)
@@ -727,8 +666,7 @@ def train_xt2xy():
 
 
 if __name__ == '__main__':
-    # train_yxi2xeta()
+    train_yxi2xeta()
     # train_xt2xy()
     # train_rtm()
-    diffnet = convSingleBigDiffeo((128, 128), np.load('box_vecs_unit.npy'))
-    diffnet.test()
+

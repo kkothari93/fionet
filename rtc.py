@@ -7,8 +7,8 @@ import tensorflow as tf
 from ops import *
 from utils import *
 
-from WPRN import convWPRN
 from tfrecords import read_tfrecords
+from WPRN import convWPRN
 from tensorflow.contrib.layers import fully_connected, conv2d
 
 tf.reset_default_graph()
@@ -26,6 +26,7 @@ GROUND_METRIC = FLAGS.ground_metric
 W2_ALPHA = FLAGS.w2_alpha
 TRAIN = FLAGS.train
 D_ITER = FLAGS.diter
+
 
 def main():
 
@@ -145,6 +146,11 @@ def main():
     """Conv portion of the newtork"""
     inp_d1, inp_d2 = conv_part(inp, inp)
 
+
+    inp_sum = tf.reduce_sum(inp, keepdims=True, axis=-1)
+
+    zero = tf.constant([0], tf.float32)
+
     x_s_d1 = flows[:, 64-1:192+1, 64-1:192+1, 0]
     y_s_d1 = flows[:, 64-1:192+1, 64-1:192+1, 1]
 
@@ -155,7 +161,6 @@ def main():
     # HEAD_START is based on number of iterations, e_0 * dataset_size / batch_size
     b1, b2 = tf.cond(step<HEAD_START, lambda: (inp, inp), lambda: (inp_d1, inp_d2))
 
-    """Geometric module"""
     warp1 = diffnet.apply(b1[:, :, :, 1:49],
                           x_s_d1, y_s_d1, 'warp_d1')
 
@@ -175,9 +180,7 @@ def main():
 
     """Setup losses"""
     bs = tf.shape(req)[0]
-    norm_net_out = tf.norm(tf.reshape(net_out, (-1,)), axis=-1)
-    norm_req_fio = tf.norm(tf.reshape(req_fio_sum, (-1,)), axis=-1)
-
+    
     loss_diff = tf.reduce_sum(tf.square(net_out_sum-req_fio_sum)) / \
         tf.cast(bs, tf.float32)
 
@@ -305,9 +308,9 @@ def main():
 
 
     with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+        sess.run(tf.global_variables_initializer())  # , options=run_options)
 
-        # preload the network from previous checkpoint
+        # preload various parts of the network
         ckpt = tf.train.latest_checkpoint(logdir)
         if ckpt:
             saver_net.restore(sess, ckpt)
@@ -315,19 +318,15 @@ def main():
             print(ckpt)
             do_diff_load = False
 
-        # preload the pre-initialized routing network
         ckpt = tf.train.latest_checkpoint(DIFF_LOAD_DIR)
         if ckpt and do_diff_load:
             diffnet.load(sess, ckpt, saver_diff)
-            print('Preload of routing module successful')
+            print('Preload of diffeo successful')
             print(ckpt)
 
 
-        # outputs that need to be saved
         ops_to_save = [inp, inp_d1, inp_d2,
                        net_out, warp1, warp2, req]
-
-        # routing network outputs
         gridops = [x_s_d1, y_s_d1, x_s_d2, y_s_d2]
 
         def save_grids(sess, i, gridops, griddir):
