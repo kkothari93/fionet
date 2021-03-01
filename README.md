@@ -16,12 +16,27 @@ Bibtex
 }
 ~~~  
 
-There are three different inverse problems tested in the paper -- Reverse Time continuation (showcases diffeomorphisms in all their glory), inverse source problem (inspired by photoacoustic imaging) and reflector imaging (inspired by seismic imaging).
+There are three different inverse problems tested in the paper -- **R**everse **T**ime **C**ontinuation (showcases diffeomorphisms in all their glory), **I**nverse **S**ource problem (inspired by photoacoustic imaging) and reflector imaging (inspired by seismic imaging).
 
 ## dataset generation
 
-We use the MATLAB kWave toolbox to generate the data. In the `data_gen/` folder we have the kwave scripts used to generate the data. These scripts consume `.png` images that act as source (in )
+We use the MATLAB kWave toolbox to generate the data. In the `data_gen/` folder we have the kwave scripts used to generate the data. These scripts consume `.png` images that act as source (in RTC, ISP) and as medium perturbation in reflector imaging. These `.png` images are generated via associated python scripts. 
 
+I will try to upload tensorflow records of all training datasets and numpy files for all test datasets in a Box link. This would be free to download. In order to recreate the dataset instead of downloading, follow the steps below.
+
+### reverse time continuation (rtc)
+
+First generate a small dataset of thick lines by running `python3 random_lines_dataset --problem rtc` . This will generate a folder `thick_lines/` within `data_gen/`. Each image in `thick_lines/` is then treated as a source pressure over a fixed Gaussian background wavespeed. The source pressure is propagated for time $T$ to get the final pressure snapshot.
+
+To generate test data from different datasets, convert it into a $512 \times 512$ image and store into a folder. Then run the appropriate submission script and generate test data.
+
+### inverse source problem (isp)
+
+Use `thick_lines/` folder from rtc and run the `kwave_isp.m` script. 
+
+### reflector imaging 
+
+Run `python3 random_lines_dataset --problem refl` from the `data_gen/` folder. This will create a directory of images called `reflectors/`. These will be used as medium background wave speed in kWave.
 
 
 
